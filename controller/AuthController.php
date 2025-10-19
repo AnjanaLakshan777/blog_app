@@ -1,29 +1,39 @@
 <?php
-require_once __DIR__ . '/../models/User.php';
+session_start();
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../models/User.php';
 
-$db = (new Database())->connect();
-$user = new User($db);
+$user = new User($conn);
 
-header("Content-Type: application/json");
+$action = $_GET['action'] ?? '';
 
-$method = $_SERVER['REQUEST_METHOD'];
-$data = json_decode(file_get_contents("php://input"), true);
+switch ($action) {
+    case 'register':
+        $data = json_decode(file_get_contents("php://input"), true);
+        echo json_encode($user->register($data));
+        break;
 
-if ($method == 'POST' && $_GET['action'] == 'register') {
-    if ($user->register($data['username'], $data['email'], $data['password'])) {
-        echo json_encode(["message" => "User registered successfully"]);
-    } else {
-        echo json_encode(["message" => "Registration failed"]);
-    }
+    case 'login':
+        $data = json_decode(file_get_contents("php://input"), true);
+        echo json_encode($user->login($data['email'], $data['password']));
+        break;
+
+    case 'updateProfile':
+        if (!isset($_SESSION['user'])) { echo json_encode(['status'=>'error','message'=>'Unauthorized']); break; }
+        $data = json_decode(file_get_contents("php://input"), true);
+        echo json_encode($user->updateProfile($_SESSION['user']['id'], $data));
+        break;
+
+    case 'uploadImage':
+        if (!isset($_SESSION['user'])) { echo json_encode(['status'=>'error','message'=>'Unauthorized']); break; }
+        echo json_encode($user->uploadProfileImage($_SESSION['user']['id'], $_FILES['image']));
+        break;
+
+    case 'logout':
+        session_destroy();
+        echo json_encode(['status'=>'success','message'=>'Logged out']);
+        break;
+
+    default:
+        echo json_encode(['status'=>'error','message'=>'Invalid action']);
 }
-
-if ($method == 'POST' && $_GET['action'] == 'login') {
-    $loginUser = $user->login($data['username'], $data['password']);
-    if ($loginUser) {
-        echo json_encode(["message" => "Login successful", "user" => $loginUser]);
-    } else {
-        echo json_encode(["message" => "Invalid credentials"]);
-    }
-}
-?>

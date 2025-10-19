@@ -1,20 +1,8 @@
 <?php
-class Database {
-    private $host = "localhost";
-    private $db_name = "blog_app";
-    private $username = "root";
-    private $password = "1234";
-    public $conn;
+require_once __DIR__ . '/env.php';
 
-    public function connect() {
-        $this->conn = null;
-        try {
-            $this->conn = new PDO("mysql:host={$this->host};dbname={$this->db_name}", $this->username, $this->password);
-            $this->conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-        } catch(PDOException $e) {
-            echo "Connection error: " . $e->getMessage();
-        }
-        return $this->conn;
-    }
+$conn = new mysqli($_ENV['DB_HOST'], $_ENV['DB_USER'], $_ENV['DB_PASS'], $_ENV['DB_NAME']);
+
+if ($conn->connect_error) {
+    die(json_encode(['status' => 'error', 'message' => 'Database connection failed']));
 }
-?>
