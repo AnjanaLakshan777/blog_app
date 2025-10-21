@@ -24,7 +24,7 @@ function current_user_id() {
     return isset($_SESSION['user']) && isset($_SESSION['user']['id']) ? (int)$_SESSION['user']['id'] : null;
 }
 
-// CREATE - Create new blog post
+// CREATE - Create new blog post (with optional image)
 if ($action === 'create' && $method === 'POST') {
     $user_id = current_user_id();
     if (!$user_id) {
@@ -33,9 +33,32 @@ if ($action === 'create' && $method === 'POST') {
         exit;
     }
 
-    $data = json_decode(file_get_contents("php://input"), true);
-    $title = trim($data['title'] ?? '');
-    $content = trim($data['content'] ?? '');
+    // Check if this is multipart/form-data (with image) or JSON (without image)
+    $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+    
+    if (strpos($contentType, 'multipart/form-data') !== false) {
+        // Handle form data with image
+        $title = trim($_POST['title'] ?? '');
+        $content = trim($_POST['content'] ?? '');
+        $blog_image = null;
+
+        // Upload image if provided
+        if (isset($_FILES['blog_image']) && $_FILES['blog_image']['error'] === UPLOAD_ERR_OK) {
+            $uploadResult = $blog->uploadBlogImage($_FILES['blog_image']);
+            if ($uploadResult['status'] === 'error') {
+                http_response_code(400);
+                echo json_encode($uploadResult);
+                exit;
+            }
+            $blog_image = $uploadResult['path'];
+        }
+    } else {
+        // Handle JSON data without image
+        $data = json_decode(file_get_contents("php://input"), true);
+        $title = trim($data['title'] ?? '');
+        $content = trim($data['content'] ?? '');
+        $blog_image = null;
+    }
 
     if ($title === '' || $content === '') {
         http_response_code(400);
@@ -43,9 +66,9 @@ if ($action === 'create' && $method === 'POST') {
         exit;
     }
 
-    $ok = $blog->create($user_id, $title, $content);
+    $ok = $blog->create($user_id, $title, $content, $blog_image);
     if ($ok) {
-        echo json_encode(["status" => "success", "message" => "Blog created successfully."]);
+        echo json_encode(["status" => "success", "message" => "Blog created successfully.", "blog_image" => $blog_image]);
     } else {
         http_response_code(500);
         echo json_encode(["status" => "error", "message" => "Failed to create blog."]);
@@ -79,7 +102,7 @@ if ($action === 'readSingle' && $method === 'GET') {
     exit;
 }
 
-// UPDATE - Update existing blog (owner only)
+// UPDATE - Update existing blog (owner only, with optional new image)
 if ($action === 'update' && $method === 'POST') {
     $user_id = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
     if (!$user_id) {
@@ -88,10 +111,34 @@ if ($action === 'update' && $method === 'POST') {
         exit;
     }
 
-    $data = json_decode(file_get_contents("php://input"), true);
-    $id = isset($data['id']) ? (int)$data['id'] : 0;
-    $title = trim($data['title'] ?? '');
-    $content = trim($data['content'] ?? '');
+    // Check if this is multipart/form-data (with image) or JSON (without image)
+    $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+    
+    if (strpos($contentType, 'multipart/form-data') !== false) {
+        // Handle form data with potential new image
+        $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
+        $title = trim($_POST['title'] ?? '');
+        $content = trim($_POST['content'] ?? '');
+        $blog_image = null;
+
+        // Upload new image if provided
+        if (isset($_FILES['blog_image']) && $_FILES['blog_image']['error'] === UPLOAD_ERR_OK) {
+            $uploadResult = $blog->uploadBlogImage($_FILES['blog_image']);
+            if ($uploadResult['status'] === 'error') {
+                http_response_code(400);
+                echo json_encode($uploadResult);
+                exit;
+            }
+            $blog_image = $uploadResult['path'];
+        }
+    } else {
+        // Handle JSON data without image
+        $data = json_decode(file_get_contents("php://input"), true);
+        $id = isset($data['id']) ? (int)$data['id'] : 0;
+        $title = trim($data['title'] ?? '');
+        $content = trim($data['content'] ?? '');
+        $blog_image = null;
+    }
 
     if ($id <= 0 || $title === '' || $content === '') {
         http_response_code(400);
@@ -99,7 +146,7 @@ if ($action === 'update' && $method === 'POST') {
         exit;
     }
 
-    $affected = $blog->update($id, $user_id, $title, $content);
+    $affected = $blog->update($id, $user_id, $title, $content, $blog_image);
     if ($affected === false) {
         http_response_code(500);
         echo json_encode(["status" => "error", "message" => "Update failed (server error)."]);

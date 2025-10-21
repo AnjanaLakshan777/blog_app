@@ -12,14 +12,14 @@ class Blog {
     }
 
     /**
-     * Create a new blog post
+     * Create a new blog post with optional image
      */
-    public function create($user_id, $title, $content) {
-        $query = "INSERT INTO {$this->table} (user_id, title, content) VALUES (?, ?, ?)";
+    public function create($user_id, $title, $content, $blog_image = null) {
+        $query = "INSERT INTO {$this->table} (user_id, title, content, blog_image) VALUES (?, ?, ?, ?)";
         $stmt = $this->conn->prepare($query);
         if (!$stmt) return false;
         
-        $stmt->bind_param("iss", $user_id, $title, $content);
+        $stmt->bind_param("isss", $user_id, $title, $content, $blog_image);
         $ok = $stmt->execute();
         $stmt->close();
         return $ok;
@@ -29,7 +29,7 @@ class Blog {
      * Get all blog posts with author info, ordered by newest first
      */
     public function readAll() {
-        $query = "SELECT b.id, b.title, b.content, b.created_at, u.username 
+        $query = "SELECT b.id, b.title, b.content, b.blog_image, b.created_at, u.username 
                   FROM {$this->table} b 
                   JOIN users u ON b.user_id = u.id 
                   ORDER BY b.created_at DESC";
@@ -47,7 +47,7 @@ class Blog {
      * Get a single blog post by ID with author info
      */
     public function readSingle($id) {
-        $query = "SELECT b.id, b.title, b.content, b.created_at, u.username 
+        $query = "SELECT b.id, b.title, b.content, b.blog_image, b.created_at, u.username 
                   FROM {$this->table} b 
                   JOIN users u ON b.user_id = u.id 
                   WHERE b.id = ?";
@@ -66,14 +66,24 @@ class Blog {
      * Update blog post - only owner can update
      * Returns affected rows (0 if not owner)
      */
-    public function update($id, $user_id, $title, $content) {
-        $query = "UPDATE {$this->table} 
-                  SET title = ?, content = ? 
-                  WHERE id = ? AND user_id = ?";
-        $stmt = $this->conn->prepare($query);
-        if (!$stmt) return false;
+    public function update($id, $user_id, $title, $content, $blog_image = null) {
+        // If blog_image is provided, update it; otherwise keep existing
+        if ($blog_image !== null) {
+            $query = "UPDATE {$this->table} 
+                      SET title = ?, content = ?, blog_image = ? 
+                      WHERE id = ? AND user_id = ?";
+            $stmt = $this->conn->prepare($query);
+            if (!$stmt) return false;
+            $stmt->bind_param("sssii", $title, $content, $blog_image, $id, $user_id);
+        } else {
+            $query = "UPDATE {$this->table} 
+                      SET title = ?, content = ? 
+                      WHERE id = ? AND user_id = ?";
+            $stmt = $this->conn->prepare($query);
+            if (!$stmt) return false;
+            $stmt->bind_param("ssii", $title, $content, $id, $user_id);
+        }
         
-        $stmt->bind_param("ssii", $title, $content, $id, $user_id);
         $ok = $stmt->execute();
         $affected = $this->conn->affected_rows;
         $stmt->close();
@@ -87,6 +97,9 @@ class Blog {
      * Returns affected rows (0 if not owner)
      */
     public function delete($id, $user_id) {
+        // Get blog image path before deleting
+        $blog = $this->readSingle($id);
+        
         $query = "DELETE FROM {$this->table} WHERE id = ? AND user_id = ?";
         $stmt = $this->conn->prepare($query);
         if (!$stmt) return false;
@@ -96,8 +109,48 @@ class Blog {
         $affected = $this->conn->affected_rows;
         $stmt->close();
         
+        // Delete image file if deletion was successful
+        if ($ok && $affected > 0 && $blog && $blog['blog_image']) {
+            $imagePath = __DIR__ . '/../' . $blog['blog_image'];
+            if (file_exists($imagePath)) {
+                unlink($imagePath);
+            }
+        }
+        
         if ($ok === false) return false;
         return $affected;
+    }
+
+    /**
+     * Upload blog image with validation
+     * Returns image path or error array
+     */
+    public function uploadBlogImage($file) {
+        $targetDir = __DIR__ . '/../' . $_ENV['BLOG_IMAGE_PATH'];
+        if (!is_dir($targetDir)) {
+            mkdir($targetDir, 0777, true);
+        }
+
+        // Validate file type
+        $allowed = explode(',', $_ENV['ALLOWED_BLOG_IMAGE_TYPES']);
+        $fileExt = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        if (!in_array($fileExt, $allowed)) {
+            return ['status'=>'error','message'=>'Invalid file type'];
+        }
+        
+        // Validate file size
+        if ($file['size'] > $_ENV['MAX_BLOG_IMAGE_SIZE']) {
+            return ['status'=>'error','message'=>'File too large'];
+        }
+
+        // Generate unique filename and move file
+        $fileName = uniqid() . "." . $fileExt;
+        $targetFile = $targetDir . $fileName;
+
+        if (move_uploaded_file($file['tmp_name'], $targetFile)) {
+            return ['status'=>'success', 'path'=>$_ENV['BLOG_IMAGE_PATH'] . $fileName];
+        }
+        return ['status'=>'error','message'=>'Upload failed'];
     }
 }
 ?>
